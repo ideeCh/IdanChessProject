@@ -1,0 +1,8 @@
+module com.example.idanchessgame.test {
+    requires com.example.idanchessgame;
+    requires org.junit.jupiter.api;
+    requires org.junit.platform.commons;
+
+    // Make sure this line is present:
+    opens com.example.idanchessgame;
+}
