@@ -933,6 +933,31 @@ public class Board {
         while (attacks != 0) {
             int toSquare = Long.numberOfTrailingZeros(attacks);
             PieceType capturedPiece = getPieceAt(toSquare);
+
+            // ADDITIONAL VALIDATION FOR QUEEN MOVES
+            if (pieceType == PieceType.WHITE_QUEEN || pieceType == PieceType.BLACK_QUEEN) {
+                // Verify this is a valid queen move (horizontal, vertical, or diagonal)
+                int fromRank = fromSquare / 8;
+                int fromFile = fromSquare % 8;
+                int toRank = toSquare / 8;
+                int toFile = toSquare % 8;
+
+                // Check if this is a valid direction for a queen
+                boolean isHorizontal = fromRank == toRank;
+                boolean isVertical = fromFile == toFile;
+
+                int rankDiff = Math.abs(toRank - fromRank);
+                int fileDiff = Math.abs(toFile - fromFile);
+                boolean isDiagonal = rankDiff == fileDiff;
+
+                // Skip this move if it's not a valid queen move pattern
+                if (!isHorizontal && !isVertical && !isDiagonal) {
+                    // Skip to next bit
+                    attacks &= (attacks - 1);
+                    continue;
+                }
+            }
+
             if (capturedPiece != null) {
                 // Capture move
                 moveList.add(new Move(
@@ -1001,11 +1026,20 @@ public class Board {
      */
     private long getRookAttacks(int square, long occupied) {
         long attacks = 0L;
+
         // Generate attacks in the four orthogonal directions
-        attacks |= generateRayAttacks(square, occupied, 8, Bitboard.RANK_8); // N
-        attacks |= generateRayAttacks(square, occupied, 1, Bitboard.FILE_H); // E
-        attacks |= generateRayAttacks(square, occupied, -8, Bitboard.RANK_1); // S
-        attacks |= generateRayAttacks(square, occupied, -1, Bitboard.FILE_A); // W
+        // North (up)
+        attacks |= generateRayAttacks(square, occupied, 8, Bitboard.RANK_8);
+
+        // East (right)
+        attacks |= generateRayAttacks(square, occupied, 1, Bitboard.FILE_H);
+
+        // South (down)
+        attacks |= generateRayAttacks(square, occupied, -8, Bitboard.RANK_1);
+
+        // West (left)
+        attacks |= generateRayAttacks(square, occupied, -1, Bitboard.FILE_A);
+
         return attacks;
     }
 
@@ -1023,9 +1057,8 @@ public class Board {
      */
     private long generateRayAttacks(int square, long occupied, int shift, long edgeMask) {
         long attacks = 0L;
-        long ray = 0L;
         long pos = 1L << square;
-        
+
         // Generate ray in the specified direction until edge or occupied square
         while ((pos & edgeMask) == 0) {
             if (shift > 0) {
@@ -1033,15 +1066,16 @@ public class Board {
             } else {
                 pos >>>= -shift;
             }
-            ray |= pos;
-            
-            // Stop at the first occupied square (include it in the attacks)
+
+            // Add this square to the attacks
+            attacks |= pos;
+
+            // Stop at occupied squares (but include the square in attacks)
             if ((pos & occupied) != 0) {
                 break;
             }
         }
-        
-        attacks |= ray;
+
         return attacks;
     }
     
@@ -1203,137 +1237,102 @@ public class Board {
         if (attackerType == null) {
             return false;
         }
-        
+
         boolean isWhiteAttacker = attackerType.isWhite();
-        
+
         // For pawns, check specific attack patterns
         if (attackerType == PieceType.WHITE_PAWN) {
             // White pawns attack diagonally up-left and up-right
             return (targetSquare == attackerSquare + 9 && attackerSquare % 8 != 7) || // Up-right
-                   (targetSquare == attackerSquare + 7 && attackerSquare % 8 != 0);   // Up-left
+                    (targetSquare == attackerSquare + 7 && attackerSquare % 8 != 0);   // Up-left
         } else if (attackerType == PieceType.BLACK_PAWN) {
             // Black pawns attack diagonally down-left and down-right
             return (targetSquare == attackerSquare - 9 && attackerSquare % 8 != 0) || // Down-left
-                   (targetSquare == attackerSquare - 7 && attackerSquare % 8 != 7);   // Down-right
+                    (targetSquare == attackerSquare - 7 && attackerSquare % 8 != 7);   // Down-right
         }
-        
+
         // For knights
         if (attackerType == PieceType.WHITE_KNIGHT || attackerType == PieceType.BLACK_KNIGHT) {
             long knightAttacks = getKnightAttacks(attackerSquare);
             return (knightAttacks & (1L << targetSquare)) != 0;
         }
-        
+
         // For kings
         if (attackerType == PieceType.WHITE_KING || attackerType == PieceType.BLACK_KING) {
             long kingAttacks = getKingAttacks(attackerSquare);
             return (kingAttacks & (1L << targetSquare)) != 0;
         }
-        
+
         long occupied = getOccupiedSquares().getValue();
-        
-        // For bishops
-        if (attackerType == PieceType.WHITE_BISHOP || attackerType == PieceType.BLACK_BISHOP) {
-            // Check if on the same diagonal
-            int fileDiff = Math.abs((targetSquare % 8) - (attackerSquare % 8));
-            int rankDiff = Math.abs((targetSquare / 8) - (attackerSquare / 8));
-            
-            if (fileDiff != rankDiff) {
-                return false; // Not on the same diagonal
-            }
-            
-            // Get bishop attacks and check if target is attacked
-            long bishopAttacks = getBishopAttacks(attackerSquare, occupied);
-            return (bishopAttacks & (1L << targetSquare)) != 0;
-        }
-        
-        // For rooks
-        if (attackerType == PieceType.WHITE_ROOK || attackerType == PieceType.BLACK_ROOK) {
-            // Check if on the same rank or file
-            boolean sameRank = (targetSquare / 8) == (attackerSquare / 8);
-            boolean sameFile = (targetSquare % 8) == (attackerSquare % 8);
-            
-            // Debug output for e8 (60) and e2 (12)
-            if (targetSquare == 60 && attackerSquare == 12) {
-                System.out.println("DEBUG: Checking if rook at e2 attacks king at e8");
-                System.out.println("Same file: " + sameFile + " (both on e-file)");
-                
-                // Check for blocking pieces
-                int startSq = Math.min(targetSquare, attackerSquare);
-                int endSq = Math.max(targetSquare, attackerSquare);
-                
-                System.out.println("Checking for pieces between e2 and e8...");
-                for (int sq = startSq + 8; sq < endSq; sq += 8) {
-                    PieceType blockingPiece = getPieceAt(sq);
-                    System.out.println("Square " + Move.squareToAlgebraic(sq) + 
-                                     " has piece: " + blockingPiece);
-                    if (blockingPiece != null) {
-                        System.out.println("Found blocking piece at " + Move.squareToAlgebraic(sq));
-                    }
-                }
-            }
-            
-            if (!sameRank && !sameFile) {
-                return false; // Not on the same rank or file
-            }
-            
-            // Get all squares between attacker and target (excluding both)
-            if (sameFile) {
-                int file = targetSquare % 8;
-                int startRank = Math.min(targetSquare / 8, attackerSquare / 8);
-                int endRank = Math.max(targetSquare / 8, attackerSquare / 8);
-                
-                // Check each square between them for a piece
-                for (int rank = startRank + 1; rank < endRank; rank++) {
-                    int sq = rank * 8 + file;
-                    if (getPieceAt(sq) != null) {
-                        if (targetSquare == 60 && attackerSquare == 12) {
-                            System.out.println("DEBUG: Piece blocking rook attack: " + 
-                                             getPieceAt(sq) + " at " + Move.squareToAlgebraic(sq));
-                        }
-                        return false; // Blocking piece found
-                    }
-                }
-            } else if (sameRank) {
-                int rank = targetSquare / 8;
-                int startFile = Math.min(targetSquare % 8, attackerSquare % 8);
-                int endFile = Math.max(targetSquare % 8, attackerSquare % 8);
-                
-                // Check each square between them for a piece
-                for (int file = startFile + 1; file < endFile; file++) {
-                    int sq = rank * 8 + file;
-                    if (getPieceAt(sq) != null) {
-                        return false; // Blocking piece found
-                    }
-                }
-            }
-            
-            // No blocking pieces found, the attack is valid
-            if (targetSquare == 60 && attackerSquare == 12) {
-                System.out.println("DEBUG: Rook at e2 CAN attack king at e8 (no blocking pieces)");
-            }
-            
-            return true;
-        }
-        
-        // For queens (combines bishop and rook movement)
+
+        // For queens - check both orthogonal and diagonal attacks
         if (attackerType == PieceType.WHITE_QUEEN || attackerType == PieceType.BLACK_QUEEN) {
-            // Check if on the same rank, file, or diagonal
-            boolean sameRank = (targetSquare / 8) == (attackerSquare / 8);
-            boolean sameFile = (targetSquare % 8) == (attackerSquare % 8);
-            
-            int fileDiff = Math.abs((targetSquare % 8) - (attackerSquare % 8));
-            int rankDiff = Math.abs((targetSquare / 8) - (attackerSquare / 8));
-            boolean sameDiagonal = fileDiff == rankDiff;
-            
-            if (!sameRank && !sameFile && !sameDiagonal) {
-                return false; // Not on the same rank, file, or diagonal
+            // First, verify this is a valid queen move pattern (horizontal, vertical, or diagonal)
+            int fromRank = attackerSquare / 8;
+            int fromFile = attackerSquare % 8;
+            int toRank = targetSquare / 8;
+            int toFile = targetSquare % 8;
+
+            // Verify movement pattern
+            boolean isHorizontal = fromRank == toRank;
+            boolean isVertical = fromFile == toFile;
+
+            int rankDiff = Math.abs(toRank - fromRank);
+            int fileDiff = Math.abs(toFile - fromFile);
+            boolean isDiagonal = rankDiff == fileDiff;
+
+            // If not a valid queen move pattern, return false
+            if (!isHorizontal && !isVertical && !isDiagonal) {
+                return false;
             }
-            
-            // Get queen attacks and check if target is attacked
+
+            // Check if ray is blocked using the proper attack function
             long queenAttacks = getQueenAttacks(attackerSquare, occupied);
             return (queenAttacks & (1L << targetSquare)) != 0;
         }
-        
+
+        // For bishops - check diagonal attacks
+        if (attackerType == PieceType.WHITE_BISHOP || attackerType == PieceType.BLACK_BISHOP) {
+            // Verify this is a diagonal move
+            int fromRank = attackerSquare / 8;
+            int fromFile = attackerSquare % 8;
+            int toRank = targetSquare / 8;
+            int toFile = targetSquare % 8;
+
+            int rankDiff = Math.abs(toRank - fromRank);
+            int fileDiff = Math.abs(toFile - fromFile);
+
+            // If not on the same diagonal, return false
+            if (rankDiff != fileDiff) {
+                return false;
+            }
+
+            // Check if the ray is blocked
+            long bishopAttacks = getBishopAttacks(attackerSquare, occupied);
+            return (bishopAttacks & (1L << targetSquare)) != 0;
+        }
+
+        // For rooks - check orthogonal attacks
+        if (attackerType == PieceType.WHITE_ROOK || attackerType == PieceType.BLACK_ROOK) {
+            // Verify this is a horizontal or vertical move
+            int fromRank = attackerSquare / 8;
+            int fromFile = attackerSquare % 8;
+            int toRank = targetSquare / 8;
+            int toFile = targetSquare % 8;
+
+            // If not on the same rank or file, return false
+            boolean isHorizontal = fromRank == toRank;
+            boolean isVertical = fromFile == toFile;
+
+            if (!isHorizontal && !isVertical) {
+                return false;
+            }
+
+            // Check if the ray is blocked
+            long rookAttacks = getRookAttacks(attackerSquare, occupied);
+            return (rookAttacks & (1L << targetSquare)) != 0;
+        }
+
         return false;
     }
 

@@ -20,15 +20,31 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ChessGUI extends Application {
+
+    // Configure logger to suppress console output
+    private static final Logger logger = Logger.getLogger(ChessGUI.class.getName());
+    static {
+        // Set the logger level to only show SEVERE errors
+        logger.setLevel(Level.SEVERE);
+
+        // Remove all handlers to prevent any output
+        Logger rootLogger = Logger.getLogger("");
+        Handler[] handlers = rootLogger.getHandlers();
+        for(Handler handler : handlers) {
+            rootLogger.removeHandler(handler);
+        }
+    }
 
     private static final int SQUARE_SIZE = 64;
     private static final Color LIGHT_COLOR = Color.rgb(234, 233, 210); // Light square color
     private static final Color DARK_COLOR = Color.rgb(75, 115, 53);    // Dark square color
+    private static final Color SELECTED_COLOR = Color.rgb(255, 255, 0, 0.7);    // Yellow with transparency for selected piece
 
     private GameState gameState;
     private GridPane chessboard;
@@ -36,6 +52,7 @@ public class ChessGUI extends Application {
     private Square[][] squares;
     private Square selectedSquare;
     private Label statusLabel;
+    private List<Move> currentLegalMoves; // Store legal moves for the selected piece
 
     @Override
     public void start(Stage primaryStage) {
@@ -56,6 +73,8 @@ public class ChessGUI extends Application {
             if (gameState.undoMove()) {
                 updateBoardFromGameState();
                 updateStatusLabel();
+                clearSelection(); // Clear selection when undoing
+                selectedSquare = null;
             }
         });
 
@@ -64,30 +83,11 @@ public class ChessGUI extends Application {
             gameState = new GameState();
             updateBoardFromGameState();
             updateStatusLabel();
+            clearSelection(); // Clear selection for new game
             selectedSquare = null;
         });
 
-        // Debug button to test game end dialog
-        Button testEndButton = new Button("Test End Game");
-        testEndButton.setOnAction(e -> {
-            // Force a game end state for testing the dialog
-            try {
-                // Use reflection to set the game status field
-                java.lang.reflect.Field statusField = GameState.class.getDeclaredField("status");
-                statusField.setAccessible(true);
-                statusField.set(gameState, GameState.GameStatus.WHITE_WINS);
-
-                // Update UI
-                updateStatusLabel();
-
-                // Show dialog
-                showGameEndDialog("White wins (Test)");
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
-        });
-
-        HBox controls = new HBox(10, statusLabel, undoButton, newGameButton, testEndButton);
+        HBox controls = new HBox(10, statusLabel, undoButton, newGameButton);
         controls.setPadding(new Insets(10));
 
         // Add components to root layout
@@ -114,6 +114,7 @@ public class ChessGUI extends Application {
                 // Set square color
                 Color squareColor = (row + col) % 2 == 0 ? LIGHT_COLOR : DARK_COLOR;
                 square.setFill(squareColor);
+                square.setOriginalColor(squareColor); // Store the original color
 
                 // Add click event to handle moves
                 final int finalRow = row;
@@ -133,33 +134,26 @@ public class ChessGUI extends Application {
 
         try {
             // Try to load all piece images
-            pieceImages.put(PieceType.WHITE_PAWN, new Image(getClass().getResourceAsStream("/images/white_pawn.png")));
-            pieceImages.put(PieceType.WHITE_KNIGHT, new Image(getClass().getResourceAsStream("/images/white_knight.png")));
-            pieceImages.put(PieceType.WHITE_BISHOP, new Image(getClass().getResourceAsStream("/images/white_bishop.png")));
-            pieceImages.put(PieceType.WHITE_ROOK, new Image(getClass().getResourceAsStream("/images/white_rook.png")));
-            pieceImages.put(PieceType.WHITE_QUEEN, new Image(getClass().getResourceAsStream("/images/white_queen.png")));
-            pieceImages.put(PieceType.WHITE_KING, new Image(getClass().getResourceAsStream("/images/white_king.png")));
+            pieceImages.put(PieceType.WHITE_PAWN, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_pawn.png"))));
+            pieceImages.put(PieceType.WHITE_KNIGHT, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_knight.png"))));
+            pieceImages.put(PieceType.WHITE_BISHOP, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_bishop.png"))));
+            pieceImages.put(PieceType.WHITE_ROOK, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_rook.png"))));
+            pieceImages.put(PieceType.WHITE_QUEEN, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_queen.png"))));
+            pieceImages.put(PieceType.WHITE_KING, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/white_king.png"))));
 
-            pieceImages.put(PieceType.BLACK_PAWN, new Image(getClass().getResourceAsStream("/images/black_pawn.png")));
-            pieceImages.put(PieceType.BLACK_KNIGHT, new Image(getClass().getResourceAsStream("/images/black_knight.png")));
-            pieceImages.put(PieceType.BLACK_BISHOP, new Image(getClass().getResourceAsStream("/images/black_bishop.png")));
-            pieceImages.put(PieceType.BLACK_ROOK, new Image(getClass().getResourceAsStream("/images/black_rook.png")));
-            pieceImages.put(PieceType.BLACK_QUEEN, new Image(getClass().getResourceAsStream("/images/black_queen.png")));
-            pieceImages.put(PieceType.BLACK_KING, new Image(getClass().getResourceAsStream("/images/black_king.png")));
-
-            // Log successful loading
-            System.out.println("Successfully loaded all chess piece images");
+            pieceImages.put(PieceType.BLACK_PAWN, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_pawn.png"))));
+            pieceImages.put(PieceType.BLACK_KNIGHT, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_knight.png"))));
+            pieceImages.put(PieceType.BLACK_BISHOP, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_bishop.png"))));
+            pieceImages.put(PieceType.BLACK_ROOK, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_rook.png"))));
+            pieceImages.put(PieceType.BLACK_QUEEN, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_queen.png"))));
+            pieceImages.put(PieceType.BLACK_KING, new Image(Objects.requireNonNull(getClass().getResourceAsStream("/images/black_king.png"))));
         } catch (Exception e) {
-            System.err.println("Failed to load chess piece images: " + e.getMessage());
-            e.printStackTrace();
-
             // Use fallback (unicode symbols or blank)
             createFallbackPieceImages();
         }
     }
 
     private void createFallbackPieceImages() {
-        System.out.println("Using fallback piece representation");
         // For now pieces will be invisible if images can't be loaded
         // In a full implementation, you might create images with text/symbols
     }
@@ -191,143 +185,202 @@ public class ChessGUI extends Application {
     }
 
     private void handleSquareClick(int row, int col) {
-        System.out.println("Square clicked: " + row + "," + col);
-
         if (gameState.isGameOver()) {
-            System.out.println("Game is already over. No more moves allowed.");
             return; // Game is over, no more moves allowed
         }
 
         int squareIndex = row * 8 + col;
         Square clickedSquare = squares[row][col];
+        PieceType pieceType = gameState.getBoard().getPieceAt(squareIndex);
 
-        if (selectedSquare == null) {
-            // No square selected yet - select this square if it has a piece of the current player's color
-            PieceType pieceType = gameState.getBoard().getPieceAt(squareIndex);
-            if (pieceType != null && pieceType.isWhite() == gameState.isWhiteToMove()) {
-                selectedSquare = clickedSquare;
-                selectedSquare.setSelected(true);
-                System.out.println("Selected piece: " + pieceType + " at " + row + "," + col);
-            }
+        // If we already have a selected piece
+        if (selectedSquare != null) {
+            // Try to make a move from the selected square to the clicked square
+            makeMove(selectedSquare, clickedSquare);
+            return;
+        }
+
+        // Clear previous selection
+        clearSelection();
+
+        // No square selected yet - select this square if it has a piece of the current player's color
+        if (pieceType != null && pieceType.isWhite() == gameState.isWhiteToMove()) {
+            selectedSquare = clickedSquare;
+            selectedSquare.setSelected(true);
+
+            // Store legal moves for validation (but don't highlight them)
+            storeLegalMoves(squareIndex);
         } else {
-            // A square is already selected - try to make a move
-            int fromRow = selectedSquare.getRow();
-            int fromCol = selectedSquare.getCol();
-            int fromSquare = fromRow * 8 + fromCol;
-
-            String fromAlgebraic = Move.squareToAlgebraic(fromSquare);
-            String toAlgebraic = Move.squareToAlgebraic(squareIndex);
-
-            System.out.println("Attempting move from " + fromAlgebraic + " to " + toAlgebraic);
-
-            // Check if we need a promotion (pawn moving to the last rank)
-            PieceType pieceType = gameState.getBoard().getPieceAt(fromSquare);
-            PieceType promotionPiece = null;
-
-            boolean isPawnPromotion = false;
-            if (pieceType == PieceType.WHITE_PAWN && row == 7) {
-                isPawnPromotion = true;
-                System.out.println("White pawn promotion detected");
-            } else if (pieceType == PieceType.BLACK_PAWN && row == 0) {
-                isPawnPromotion = true;
-                System.out.println("Black pawn promotion detected");
-            }
-
-            // Deselect the square
-            selectedSquare.setSelected(false);
             selectedSquare = null;
+        }
+    }
 
-            boolean moveMade = false;
+    private void makeMove(Square fromSquare, Square toSquare) {
+        int fromRow = fromSquare.getRow();
+        int fromCol = fromSquare.getCol();
+        int fromSquareIndex = fromRow * 8 + fromCol;
 
-            if (isPawnPromotion) {
-                // Show promotion dialog and wait for user selection
-                boolean isWhite = pieceType.isWhite();
-                promotionPiece = showPromotionDialog(isWhite);
+        int toRow = toSquare.getRow();
+        int toCol = toSquare.getCol();
+        int toSquareIndex = toRow * 8 + toCol;
 
-                if (promotionPiece == null) {
-                    // User canceled promotion
-                    System.out.println("Promotion canceled by user");
-                    return;
-                }
+        String fromAlgebraic = Move.squareToAlgebraic(fromSquareIndex);
+        String toAlgebraic = Move.squareToAlgebraic(toSquareIndex);
 
-                System.out.println("User selected promotion to: " + promotionPiece);
+        // Get the piece type
+        PieceType pieceType = gameState.getBoard().getPieceAt(fromSquareIndex);
 
-                // Create explicit promotion move
-                Move promotionMove = new Move(
-                        fromSquare,
-                        squareIndex,
-                        pieceType,
-                        gameState.getBoard().getPieceAt(squareIndex),  // Captured piece (if any)
-                        true,                                         // isPromotion = true
-                        promotionPiece,                               // The piece we're promoting to
-                        false,                                        // isCastling = false
-                        false                                         // isEnPassant = false
-                );
+        // Additional validation for sliding pieces
+        boolean isValid = true;
+        if (pieceType == PieceType.WHITE_BISHOP || pieceType == PieceType.BLACK_BISHOP) {
+            isValid = Bishop.isValidBishopMove(fromSquareIndex, toSquareIndex);
+        } else if (pieceType == PieceType.WHITE_QUEEN || pieceType == PieceType.BLACK_QUEEN) {
+            isValid = Queen.isValidQueenMove(fromSquareIndex, toSquareIndex);
+        }
 
-                // Make the promotion move
-                moveMade = gameState.makeMove(promotionMove);
-                System.out.println("Promotion move made: " + moveMade);
-            } else {
-                // Regular move
-                moveMade = gameState.makeMove(fromAlgebraic, toAlgebraic, null);
-                System.out.println("Regular move made: " + moveMade);
+        if (!isValid) {
+            // Clear selection
+            clearSelection();
+            selectedSquare = null;
+            return;
+        }
+
+        // Validate that this is a legal move by checking our stored legal moves
+        boolean isLegalMove = isLegalMove(fromSquareIndex, toSquareIndex);
+        if (!isLegalMove) {
+            // Clear selection
+            clearSelection();
+            selectedSquare = null;
+            return;
+        }
+
+        // Check if we need a promotion (pawn moving to the last rank)
+        PieceType promotionPiece = null;
+
+        boolean isPawnPromotion = false;
+        if (pieceType == PieceType.WHITE_PAWN && toRow == 7) {
+            isPawnPromotion = true;
+        } else if (pieceType == PieceType.BLACK_PAWN && toRow == 0) {
+            isPawnPromotion = true;
+        }
+
+        // Clear selection
+        clearSelection();
+        selectedSquare = null;
+
+        if (isPawnPromotion) {
+            // Show promotion dialog and wait for user selection
+            boolean isWhite = pieceType.isWhite();
+            promotionPiece = showPromotionDialog(isWhite);
+
+            if (promotionPiece == null) {
+                // User canceled promotion
+                return;
             }
+        }
 
-            if (moveMade) {
-                // Update the board to reflect the new state
-                updateBoardFromGameState();
+        // Make the move
+        boolean moveMade = gameState.makeMove(fromAlgebraic, toAlgebraic, promotionPiece);
 
-                // Check game status after the move
-                if (gameState.isGameOver()) {
-                    System.out.println("Game over detected. Status: " + gameState.getStatus());
+        if (moveMade) {
+            // Update the board to reflect the new state
+            updateBoardFromGameState();
 
-                    String status = "";
-                    switch (gameState.getStatus()) {
-                        case WHITE_WINS:
-                            status = "Checkmate! White wins.";
-                            break;
-                        case BLACK_WINS:
-                            status = "Checkmate! Black wins.";
-                            break;
-                        case DRAW:
-                            status = "Game drawn.";
-                            break;
-                        default:
-                            status = "Game ended.";
-                            break;
-                    }
+            // Check game status after the move
+            if (gameState.isGameOver()) {
+                String status = getGameEndStatus();
 
-                    // Make sure dialog appears on JavaFX thread
-                    final String finalStatus = status;
-                    Platform.runLater(() -> {
-                        showGameEndDialog(finalStatus);
-                    });
-                }
+                // Make sure dialog appears on JavaFX thread
+                final String finalStatus = status;
+                Platform.runLater(() -> showGameEndDialog(finalStatus));
             }
         }
     }
 
+    private String getGameEndStatus() {
+        String status;
+        switch (gameState.getStatus()) {
+            case WHITE_WINS:
+                status = "Checkmate! White wins.";
+                break;
+            case BLACK_WINS:
+                status = "Checkmate! Black wins.";
+                break;
+            case DRAW:
+                status = "Game drawn.";
+                break;
+            default:
+                status = "Game ended.";
+                break;
+        }
+        return status;
+    }
+
+    private void storeLegalMoves(int squareIndex) {
+        Board board = gameState.getBoard();
+        PieceType pieceType = board.getPieceAt(squareIndex);
+
+        if (pieceType == null) {
+            return;
+        }
+
+        // Get all legal moves from the board
+        List<Move> legalMoves = board.getLegalMoves();
+        currentLegalMoves = new ArrayList<>();
+
+        // Filter moves for the selected piece
+        for (Move move : legalMoves) {
+            if (move.getFromSquare() == squareIndex) {
+                int toSquareIndex = move.getToSquare();
+
+                // Extra validation for queen and bishop moves
+                boolean validMove = true;
+                if (pieceType == PieceType.WHITE_QUEEN || pieceType == PieceType.BLACK_QUEEN) {
+                    validMove = Queen.isValidQueenMove(squareIndex, toSquareIndex);
+                } else if (pieceType == PieceType.WHITE_BISHOP || pieceType == PieceType.BLACK_BISHOP) {
+                    validMove = Bishop.isValidBishopMove(squareIndex, toSquareIndex);
+                }
+
+                if (!validMove) {
+                    continue;
+                }
+
+                // Add to our current legal moves list
+                currentLegalMoves.add(move);
+            }
+        }
+    }
+
+    private boolean isLegalMove(int fromSquare, int toSquare) {
+        if (currentLegalMoves == null) {
+            return false;
+        }
+
+        for (Move move : currentLegalMoves) {
+            if (move.getFromSquare() == fromSquare && move.getToSquare() == toSquare) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void clearSelection() {
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                squares[row][col].setSelected(false);
+            }
+        }
+        currentLegalMoves = null;
+    }
+
     private void updateStatusLabel() {
         if (statusLabel == null) {
-            System.out.println("Warning: statusLabel is null in updateStatusLabel()");
             return;
         }
 
         if (gameState.isGameOver()) {
-            switch (gameState.getStatus()) {
-                case WHITE_WINS:
-                    statusLabel.setText("Checkmate! White wins.");
-                    break;
-                case BLACK_WINS:
-                    statusLabel.setText("Checkmate! Black wins.");
-                    break;
-                case DRAW:
-                    statusLabel.setText("Game drawn.");
-                    break;
-                default:
-                    statusLabel.setText("Game ended.");
-                    break;
-            }
+            statusLabel.setText(getGameEndStatus());
         } else {
             statusLabel.setText(gameState.isWhiteToMove() ? "White to move" : "Black to move");
             if (gameState.isInCheck()) {
@@ -351,7 +404,6 @@ public class ChessGUI extends Application {
         VBox options = new VBox(10);
 
         // Create promotion piece types using the static methods from PieceType
-        // This ensures we get the correct enum instances
         PieceType[] promotionOptions = {
                 PieceType.getQueenType(isWhite),   // Queen
                 PieceType.getRookType(isWhite),    // Rook
@@ -406,8 +458,6 @@ public class ChessGUI extends Application {
      * @param message The game result message to display
      */
     private void showGameEndDialog(String message) {
-        System.out.println("Showing game end dialog: " + message);
-
         Alert alert = new Alert(AlertType.INFORMATION);
         alert.setTitle("Game Over");
         alert.setHeaderText("Game Ended");
@@ -423,12 +473,9 @@ public class ChessGUI extends Application {
         Optional<ButtonType> result = alert.showAndWait();
 
         if (result.isPresent() && result.get() == newGameButton) {
-            System.out.println("Starting new game");
             // Start a new game
             gameState = new GameState();
             updateBoardFromGameState();
-        } else {
-            System.out.println("Dialog closed without starting new game");
         }
     }
 
@@ -483,10 +530,13 @@ public class ChessGUI extends Application {
             }
         }
 
+        public void setOriginalColor(Color color) {
+            this.originalColor = color;
+        }
+
         public void setSelected(boolean selected) {
             if (selected) {
-                originalColor = (Color) getFill();
-                setFill(Color.YELLOW);
+                setFill(SELECTED_COLOR);
             } else {
                 setFill(originalColor);
             }
